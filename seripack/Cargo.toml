@@ -1,0 +1,21 @@
+[package]
+name = "seripack"
+version = "0.1.0"
+description = "Easy routing for packet/message like structs"
+license = "MIT"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.64"
+blosc = "0.1.3"
+downcast-rs = "1.2.0"
+enum_dispatch = "0.3.8"
+lazy_static = "1.4.0"
+pyo3 = "0.17.1"
+
+seripack_macros = { path = "../seripack_macros", version = "0.1.0"}
+syn = "1.0.99"
+
+# [profile.release-lto]
+# inherits = "release"
+# lto = true

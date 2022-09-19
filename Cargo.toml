@@ -1,0 +1,9 @@
+[workspace]
+resolver = "2"
+members = [
+    "seripack",
+    "seripack_macros"
+]
+
+[profile.dev]
+opt-level = 2
