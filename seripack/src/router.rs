@@ -1,62 +1,83 @@
-// Relative Modules
-pub mod encoder;
-
 // Standard Uses
 use std::collections::HashMap;
+use std::mem;
 
 // Crate Uses
 use crate::packet::Packet;
-use crate::router::encoder::Encoder;
+use crate::encoder::Encoder;
 
 // External Uses
-// use pyo3::*;
+use anyhow::{Result, bail};
 
 
 pub type PacketId = u8;
+pub type BuilderFn = (usize, fn(Vec<u8>) -> Box<dyn Packet>);
+pub type ReceiverFn = fn(Box<dyn Packet>);
+
 
 // #[pyclass]
+#[derive(Default)]
 pub struct Router {
-    mutators: Vec<Box<dyn Encoder>>,
-    builders: HashMap<PacketId, fn(Vec<u8>) -> Box<dyn Packet>>,
-    receivers: HashMap<PacketId, Vec<fn(&Box<dyn Packet>)>>
+    // TODO: Conditional encoders can be a different concept where encoders only act on certain
+    //       packet instead, but maybe instead of packet it there could be a sort of enum or string
+    //       flag, doing by id could be less convenient (because more packet id specific code
+    //       instead where probably only consts are necessary, or something similar)
+    encoders: Vec<Box<dyn Encoder + Send + Sync>>,
+    builders: HashMap<PacketId, BuilderFn>,
+    receivers: HashMap<PacketId, Vec<ReceiverFn>>
 }
 
 // #[pymethods]
 impl Router {
-    pub fn new(&self, mutators: Vec<Box<dyn Encoder>>) -> Self {
-        Self {
-            mutators,
-            builders: Default::default(),
-            receivers: Default::default()
-        }
+
+    pub fn add_encoder(&mut self, encoder: Box<dyn Encoder + Send + Sync>) {
+        self.encoders.push(encoder);
     }
 
-    pub fn add_mutator(&mut self, mutator: Box<dyn Encoder>) {
-        self.mutators.push(mutator);
+    pub fn add_builder(&mut self, id: PacketId, builder: BuilderFn) {
+        self.builders.entry(id)
+            .and_modify(|e| *e = builder)
+            .or_insert(builder);
     }
 
-    pub fn route(&self, message: Vec<u8>) -> String {
-        if message.len() < 1 {
-            return format!("Message needs to contain at least {} bytes, which is the packet id",
+    pub fn add_receiver(&mut self, id: PacketId, receiver: ReceiverFn) {
+        self.receivers.entry(id).or_insert(vec![]).push(receiver);
+    }
+
+    pub fn packet_size(&mut self, id: &u8) -> Option<usize>{
+        self.builders.get(id).map(|p| p.0)
+    }
+
+    pub fn has_packet(&self, id: u8) -> bool {
+        self.builders.contains_key(&id)
+    }
+
+    pub fn route(&self, message: Vec<u8>) -> Result<()> {
+        if message.len() < mem::size_of::<PacketId>() {
+            bail!("Message needs to contain at least {} bytes, which is the packet id",
                 std::mem::size_of::<PacketId>()
             )
         }
 
-        let id = &message[0];
+        self.route_id(message[0] as PacketId, message[mem::size_of::<PacketId>()..]
+            .to_owned())
+    }
 
-        if !self.builders.contains_key(id) {
-            return format!("Received message with packet id {}, which is not registered to route",
-                id
-            )
+    pub fn route_id(&self, id: PacketId, message: Vec<u8>) -> Result<()> {
+        if !self.builders.contains_key(&id) {
+            bail!("Received message with packet id {}, which is not registered", id)
         }
 
-        let packet = self.builders[id](message[1..].to_owned());
-
-        for receiver in &self.receivers[id] {
-            receiver(&packet)
+        let mut decoded = message;
+        for encoder in &self.encoders {
+            encoder.decode(&mut decoded);
         }
 
-        "".to_owned()
+        for receiver in &self.receivers[&id] {
+            receiver(self.builders[&id].1(decoded.clone()));
+        }
+
+        Ok(())
     }
 }
 

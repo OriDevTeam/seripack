@@ -51,13 +51,10 @@ pub fn route_macro2(args: TokenStream, input: TokenStream) -> TokenStream {
     let packet_type = &args_str[1];
 
     // Build the function
-    let q = quote::quote! {
+    TokenStream::from(quote::quote! {
         fn #fn_name(pure_packet: Box<dyn Packet>) {
             let packet = pure_packet.downcast_ref::<#packet_type>().unwrap();
         }
-    };
-
-    TokenStream::from(q)
+    })
 }
-
 
